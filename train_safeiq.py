@@ -127,7 +127,7 @@ def main(cfg: DictConfig):
         run_name += '-cql'
         
     wandb.init(project=f'test', settings=wandb.Settings(_disable_stats=True), \
-            group=f'offline-{args.env.name}',
+            group=f'new-{args.env.name}',
             job_type=run_name,
             name=f'{args.seed}', entity='hmhuy')
 
@@ -289,7 +289,7 @@ def update_actor_BC(self, obs, exp_action,next_obs,env_cost,is_constrained, step
         # adv_reward = dis_reward
         weight = torch.exp(adv_reward - adv_reward.max())
         weight = weight / weight.mean()
-        weight[disc_reward > 0.55] = -1.0
+        weight[disc_prob > 0.55] = -1.0
     logp = self.actor.get_logp(obs,exp_action).clip(min=self.min_logp,max=self.max_logp)
     
     actor_loss = - (weight.detach() * logp).mean()

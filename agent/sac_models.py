@@ -327,5 +327,5 @@ class Discriminator(nn.Module):
     def get_weight(self,obs,action,reward_weight=False):
         d = self.forward(obs,action)
         if (reward_weight):
-            d[d>0.5] = 0.95
+            d[d>0.55] = 0.95
         return torch.log(1/d - 1),d
