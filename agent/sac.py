@@ -261,3 +261,32 @@ class SAC(object):
         )
         cql_V = torch.logsumexp(cat_Q / alpha, dim=1).mean() * alpha
         return cql_V
+
+    def cqlV_from_V(self, obs, network, num_random=10):
+        """
+        Compute the CQL value for the given observations.
+
+        Args:
+            obs (numpy.ndarray): Observations.
+            network (object): Network to compute the CQL value.
+            num_random (int, optional): Number of random actions to sample. Defaults to 10.
+
+        Returns:
+            torch.Tensor: CQL value.
+
+        """
+        action, log_prob = self.sample_actions(obs, num_random)
+        current_Q = self._get_tensor_values(obs, action, network)
+
+        random_action = torch.FloatTensor(
+            obs.shape[0] * num_random, action.shape[-1]).uniform_(-1, 1).to(self.device)
+
+        random_density = np.log(0.5 ** action.shape[-1])
+        rand_Q = self._get_tensor_values(obs, random_action, network)
+        alpha = self.alpha.detach()
+
+        cat_Q = torch.cat(
+            [rand_Q - alpha * random_density, current_Q - alpha * log_prob.detach()], 1
+        )
+        cql_V = torch.logsumexp(cat_Q / alpha, dim=1).mean() * alpha
+        return cql_V

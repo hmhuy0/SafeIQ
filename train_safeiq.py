@@ -126,10 +126,11 @@ def main(cfg: DictConfig):
     if (args.agent.cql):
         run_name += '-cql'
         
-    wandb.init(project=f'test', settings=wandb.Settings(_disable_stats=True), \
-            group=f'new-{args.env.name}',
-            job_type=run_name,
-            name=f'{args.seed}', entity='hmhuy')
+    if (args.wandb):
+        wandb.init(project=f'test', settings=wandb.Settings(_disable_stats=True), \
+                group=f'new-{args.env.name}',
+                job_type=run_name,
+                name=f'{args.seed}', entity='hmhuy')
 
     # set seeds
     random.seed(args.seed)
@@ -280,16 +281,23 @@ def update_actor(self, obs ,exp_action,next_obs, step):
     return info
 
 def update_actor_BC(self, obs, exp_action,next_obs,env_cost,is_constrained, step):
+    loss_dict = {}
     with torch.no_grad():
         disc_reward,disc_prob = self.disc.get_weight(obs,exp_action,reward_weight=True)
-        current_V = self.getV(obs).clip(min=-300,max=300)
+        current_Qs = self.critic(obs, exp_action, both=False).clip(min=-300,max=300)
+        current_V = self.get_targetV(obs).clip(min=-300,max=300)
         next_V = self.get_targetV(next_obs).clip(min=-300,max=300)
-        Q_reward = current_V - self.gamma * next_V 
-        adv_reward = (disc_reward - Q_reward.clip(min=-3, max=3)) * (1 - disc_prob)
-        # adv_reward = dis_reward
-        weight = torch.exp(adv_reward - adv_reward.max())
-        weight = weight / weight.mean()
-        weight[disc_prob > 0.55] = -1.0
+        adv_Q = (current_Qs - current_V).clip(min=-3, max=3)
+        reward_Q = (current_Qs - self.gamma * next_V).clip(min=-3, max=3)
+        
+        weight_Q = torch.exp(adv_Q - adv_Q.max())
+        weight_Q = (weight_Q / weight_Q.mean())
+        
+        GB_weight = torch.exp(reward_Q - reward_Q.max())
+        GB_weight = (GB_weight / GB_weight.mean())
+        
+        weight = weight_Q
+        weight[disc_prob>0.55] = -1
     logp = self.actor.get_logp(obs,exp_action).clip(min=self.min_logp,max=self.max_logp)
     
     actor_loss = - (weight.detach() * logp).mean()
@@ -297,26 +305,32 @@ def update_actor_BC(self, obs, exp_action,next_obs,env_cost,is_constrained, step
     actor_loss.backward()
     self.actor_optimizer.step()
     
-    loss_dict = {
-        'actor_BC_loss/C_weight': round(weight[is_constrained.squeeze(-1)].mean().item(),3),
-        'actor_BC_loss/U_weight': round(weight[~is_constrained.squeeze(-1)].mean().item(),3),
-        
-        'actor_BC_loss/C_prob': round(disc_prob[is_constrained.squeeze(-1)].mean().item(),3),
-        'actor_BC_loss/U_prob': round(disc_prob[~is_constrained.squeeze(-1)].mean().item(),3),
-        
-        'actor_BC_loss/C_reward': round(disc_reward[is_constrained.squeeze(-1)].mean().item(),3),
-        'actor_BC_loss/U_reward': round(disc_reward[~is_constrained.squeeze(-1)].mean().item(),3),
-        
-        'actor_BC_loss/C_Q_reward': round(Q_reward[is_constrained.squeeze(-1)].mean().item(),3),
-        'actor_BC_loss/U_Q_reward': round(Q_reward[~is_constrained.squeeze(-1)].mean().item(),3),
-        
-        'actor_BC_loss/C_adv': round(adv_reward[is_constrained.squeeze(-1)].mean().item(),3),
-        'actor_BC_loss/U_adv': round(adv_reward[~is_constrained.squeeze(-1)].mean().item(),3),
-        
-        'actor_BC_loss/C_logp': logp[is_constrained].mean().item(),
-        'actor_BC_loss/U_logp': logp[~is_constrained].mean().item(),
-        'actor_BC_loss/actor_loss': actor_loss.item(),
-    }
+    if (step % self.args.env.eval_interval == 0):
+        loss_dict = {
+            'actor_BC_loss/C_weight': round(weight[is_constrained.squeeze(-1)].mean().item(),3),
+            'actor_BC_loss/U_weight': round(weight[~is_constrained.squeeze(-1)].mean().item(),3),
+            
+            'actor_BC_loss/C_GB_weight': round(GB_weight[is_constrained.squeeze(-1)].mean().item(),3),
+            'actor_BC_loss/u_GB_weight': round(GB_weight[~is_constrained.squeeze(-1)].mean().item(),3),
+
+            'Disc/C_prob': round(disc_prob[is_constrained.squeeze(-1)].mean().item(),3),
+            'Disc/U_prob': round(disc_prob[~is_constrained.squeeze(-1)].mean().item(),3),
+            
+            'actor_BC_loss/C_reward_Q': round(reward_Q[is_constrained.squeeze(-1)].mean().item(),3),
+            'actor_BC_loss/U_reward_Q': round(reward_Q[~is_constrained.squeeze(-1)].mean().item(),3),
+            
+            'actor_BC_loss/C_Q': round(current_Qs[is_constrained.squeeze(-1)].mean().item(),3),
+            'actor_BC_loss/U_Q': round(current_Qs[~is_constrained.squeeze(-1)].mean().item(),3),
+            
+            'actor_BC_loss/C_weight_Q': round(weight_Q[is_constrained.squeeze(-1)].mean().item(),3),
+            'actor_BC_loss/U_weight_Q': round(weight_Q[~is_constrained.squeeze(-1)].mean().item(),3),
+            
+            'actor_BC_loss/C_logp': logp[is_constrained].mean().item(),
+            'actor_BC_loss/U_logp': logp[~is_constrained].mean().item(),
+            
+            'actor_BC_loss/actor_loss': actor_loss.item(),
+            'actor_BC_loss/dif_Q': round(current_Qs[is_constrained.squeeze(-1)].mean().item() - current_Qs[~is_constrained.squeeze(-1)].mean().item(),3),
+        }
     return loss_dict
 
 def update_disc(self,mix_buffer,bad_buffer,step):
@@ -411,7 +425,12 @@ def iq_loss(agent,critic_Q, current_Q, current_v, next_v, batch,step):
             print('[critic] V0 loss')
         v0_loss = (1 - gamma) * v0
         loss += v0_loss
-
+        
+    elif args.method.loss == "no":
+        if (agent.first_log):
+            print('[critic] no value loss')
+        pass
+    
     else:
         raise ValueError(f'This sampling method is not implemented: {args.method.type}')
 
@@ -419,7 +438,7 @@ def iq_loss(agent,critic_Q, current_Q, current_v, next_v, batch,step):
         num_random = 25
         if (agent.first_log):
             print(f'[critic] CQL loss ({num_random} randoms)')
-        cql_loss = agent.cqlV(obs[~is_bad.squeeze(1), ...], critic_Q, num_random) - current_Q[~is_bad].mean()
+        cql_loss = agent.cqlV(obs, critic_Q, num_random) - current_Q.mean()
         loss += cql_loss
         loss_dict['critic_loss/cql_loss'] = round(cql_loss.item(),3)
         
@@ -447,6 +466,7 @@ def iq_loss(agent,critic_Q, current_Q, current_v, next_v, batch,step):
             loss_dict['critic_loss/bad_logp'] = round(data_logp[is_bad].mean().item(),3)
             loss_dict['critic_loss/mix_weight'] = round(mix_weight.mean().item(),3)
             loss_dict['critic_loss/bad_weight'] = round(bad_weight.mean().item(),3)
+            
             loss_dict['True_value/C_weight'] = round(weight[is_constrained.squeeze(-1)].mean().item(),3)
             loss_dict['True_value/U_weight'] = round(weight[~is_constrained.squeeze(-1)].mean().item(),3)
             loss_dict['True_value/C_reward'] = round(all_reward[is_constrained].mean().item(),3)
