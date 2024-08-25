@@ -126,8 +126,8 @@ def main(cfg: DictConfig):
     if (args.agent.cql):
         run_name += '-cql'
         
-    wandb.init(project=f'test', settings=wandb.Settings(_disable_stats=True), \
-            group=f'new-{args.env.name}',
+    wandb.init(project=f'Safe-{args.env.name}', settings=wandb.Settings(_disable_stats=True), \
+            group=f'test',
             job_type=run_name,
             name=f'{args.seed}', entity='hmhuy')
 
@@ -183,8 +183,9 @@ def main(cfg: DictConfig):
     agent.pretrain_disc = types.MethodType(pretrain_disc, agent)
     
     disc_path = f'{hydra.utils.to_absolute_path("experts")}/{args.env.name}/Disc'
-    agent.pretrain_disc(mix_memory_replay,bad_memory_replay,disc_path,f'disc_C({n_mix_good})_U({n_mix_bad})_B({n_bad})')
+    agent.pretrain_disc(mix_memory_replay,bad_memory_replay,disc_path,f'overlap_state_disc_C(400)_U(1600)_B({n_bad})')
     agent.disc.eval()
+    
     # Sample initial states from env
     for learn_steps in range(LEARN_STEPS+1):
         if (learn_steps%100 == 0):
@@ -195,9 +196,10 @@ def main(cfg: DictConfig):
                                  bad_memory_replay, learn_steps))
         
         if learn_steps % args.env.eval_interval == 0:
-            eval_returns,eval_costs,cost_rate = eval_parallel(agent, eval_env, num_episodes=args.eval.eps,args = args)
+            eval_returns,eval_costs,cost_rate = eval_parallel(agent, eval_env, num_episodes=25,args = args)
             returns = np.mean(eval_returns)
             costs = np.mean(eval_costs)
+            print(f'[Eval {learn_steps/LEARN_STEPS:.1f}%] Returns: {returns:.2f}, Costs: {costs:.2f}')
             info.update({
                 'eval/returns': round(returns, 3),
                 'eval/costs': round(costs,3),
@@ -210,7 +212,7 @@ def main(cfg: DictConfig):
             if returns > best_eval_returns:
                 best_eval_returns = returns
 
-def pretrain_disc(self, mix_buffer, bad_buffer, disc_path,file_name,total_step = 50000):
+def pretrain_disc(self, mix_buffer, bad_buffer, disc_path,file_name,total_step = 100000):
     os.makedirs(disc_path, exist_ok=True)
     file_path = f'{disc_path}/{file_name}'
     print(file_path)
@@ -242,7 +244,7 @@ def update_critic(self, mix_batch, bad_batch, step):
     agent = self
     current_V = self.getV(obs)
     with torch.no_grad():
-        next_V = self.get_targetV(next_obs).clip(min=-300,max=300)
+        next_V = self.get_targetV(next_obs).clip(min=-self.max_v,max=self.max_v)
         
     if "DoubleQ" in self.args.q_net._target_:
         current_Q1, current_Q2 = self.critic(obs, action, both=True)
@@ -279,17 +281,16 @@ def update_actor(self, obs ,exp_action,next_obs, step):
 
     return info
 
-def update_actor_BC(self, obs, exp_action,next_obs,env_cost,is_constrained, step):
+def update_actor_BC(self, obs, exp_action,next_obs,done,env_cost,is_constrained, step):
     with torch.no_grad():
-        disc_reward,disc_prob = self.disc.get_weight(obs,exp_action,reward_weight=True)
-        current_V = self.getV(obs).clip(min=-300,max=300)
-        next_V = self.get_targetV(next_obs).clip(min=-300,max=300)
-        Q_reward = current_V - self.gamma * next_V 
-        adv_reward = (disc_reward - Q_reward.clip(min=-3, max=3)) * (1 - disc_prob)
-        # adv_reward = dis_reward
+        disc_reward,disc_prob = self.disc.get_weight(obs,reward_weight=True)
+        Qs = self.critic_target(obs,exp_action).clip(min=-self.max_v,max=self.max_v)
+        current_V = self.get_targetV(obs).clip(min=-self.max_v,max=self.max_v)
+        
+        adv_reward = Qs - current_V # * (1 - disc_prob) # need to learn a new V(s)
+
         weight = torch.exp(adv_reward - adv_reward.max())
         weight = weight / weight.mean()
-        weight[disc_prob > 0.55] = -1.0
     logp = self.actor.get_logp(obs,exp_action).clip(min=self.min_logp,max=self.max_logp)
     
     actor_loss = - (weight.detach() * logp).mean()
@@ -301,14 +302,15 @@ def update_actor_BC(self, obs, exp_action,next_obs,env_cost,is_constrained, step
         'actor_BC_loss/C_weight': round(weight[is_constrained.squeeze(-1)].mean().item(),3),
         'actor_BC_loss/U_weight': round(weight[~is_constrained.squeeze(-1)].mean().item(),3),
         
-        'actor_BC_loss/C_prob': round(disc_prob[is_constrained.squeeze(-1)].mean().item(),3),
-        'actor_BC_loss/U_prob': round(disc_prob[~is_constrained.squeeze(-1)].mean().item(),3),
+        'disc/C_prob': round(disc_prob[is_constrained.squeeze(-1)].mean().item(),3),
+        'disc/U_prob': round(disc_prob[~is_constrained.squeeze(-1)].mean().item(),3),
+        
+        # draw distribution of prob
+        'histogram/C_prob': wandb.Histogram(disc_prob[is_constrained.squeeze(-1)].cpu().numpy()),
+        'histogram/U_prob': wandb.Histogram(disc_prob[~is_constrained.squeeze(-1)].cpu().numpy()),
         
         'actor_BC_loss/C_reward': round(disc_reward[is_constrained.squeeze(-1)].mean().item(),3),
         'actor_BC_loss/U_reward': round(disc_reward[~is_constrained.squeeze(-1)].mean().item(),3),
-        
-        'actor_BC_loss/C_Q_reward': round(Q_reward[is_constrained.squeeze(-1)].mean().item(),3),
-        'actor_BC_loss/U_Q_reward': round(Q_reward[~is_constrained.squeeze(-1)].mean().item(),3),
         
         'actor_BC_loss/C_adv': round(adv_reward[is_constrained.squeeze(-1)].mean().item(),3),
         'actor_BC_loss/U_adv': round(adv_reward[~is_constrained.squeeze(-1)].mean().item(),3),
@@ -325,10 +327,11 @@ def update_disc(self,mix_buffer,bad_buffer,step):
     mix_obs, _, mix_action, _,_, _,mix_is_constrained = mix_batch
     bad_obs, _, bad_action, _,_, _,bad_is_constrained = bad_batch
     
-    mix_d = self.disc(mix_obs,mix_action)
-    bad_d = self.disc(bad_obs,bad_action)
-    loss_mix = -torch.log(1-mix_d).mean()
-    loss_bad = -torch.log(bad_d).mean()
+    mix_d = self.disc(mix_obs)
+    bad_d = self.disc(bad_obs)
+    loss_mix = -2 * torch.log(1-mix_d).mean() + torch.log(1-bad_d).mean()
+    # loss_mix = - torch.log(1-mix_d).mean()
+    loss_bad = - torch.log(bad_d).mean()
 
     loss = loss_mix + loss_bad
     
@@ -343,8 +346,8 @@ def update_disc(self,mix_buffer,bad_buffer,step):
         bad_obs, _, bad_action, _,_, _,bad_is_constrained = bad_batch
         
         self.disc.eval()
-        mix_d = self.disc(mix_obs,mix_action)
-        bad_d = self.disc(bad_obs,bad_action)
+        mix_d = self.disc(mix_obs)
+        bad_d = self.disc(bad_obs)
         self.disc.train()
     
     info = {
@@ -363,7 +366,7 @@ def iq_update(self, mix_buffer,bad_buffer, step):
     # info.update(self.update_disc(mix_batch,bad_batch, step))
     
     obs, next_obs, action, env_reward,env_cost, done,is_constrained = mix_batch
-    info.update(self.update_actor_BC(obs,action,next_obs,env_cost,is_constrained, step))
+    info.update(self.update_actor_BC(obs,action,next_obs,done,env_cost,is_constrained, step))
 
     if step % self.critic_target_update_frequency == 0:
         if self.args.train.soft_update:
@@ -385,19 +388,17 @@ def iq_loss(agent,critic_Q, current_Q, current_v, next_v, batch,step):
 
     y = (1 - done) * gamma * next_v
     with torch.no_grad():
-        weight,_ = agent.disc.get_weight(obs,action,reward_weight=True)
-        mix_weight = weight[~is_bad]
-        bad_weight =weight[is_bad]
+        weight,_ = agent.disc.get_weight(obs,reward_weight=True)
         
-    mix_reward = (current_Q - y)[~is_bad]
-    loss = - (mix_weight * mix_reward).mean()
-
-    if (args.agent.pen_bad):
-        bad_reward = (current_Q - y)[is_bad]
+    reward = (current_Q - y)
+    if (not args.agent.pen_bad):
+        reward = reward[~is_bad]
+        weight = weight[~is_bad]
+    else:
         if (agent.first_log):
-            print('[critic] Pen bad')
-        loss += - (bad_weight * bad_reward).mean()
-        
+            print('[critic] penalize bad samples')
+            
+    loss = - (weight * reward).mean()
 
     # calculate 2nd term for IQ loss, we show different sampling strategies
     if args.method.loss == "value_expert":
@@ -412,6 +413,10 @@ def iq_loss(agent,critic_Q, current_Q, current_v, next_v, batch,step):
         v0_loss = (1 - gamma) * v0
         loss += v0_loss
 
+    elif args.method.loss == "no":
+        if (agent.first_log):
+            print('[critic] no Value loss')
+
     else:
         raise ValueError(f'This sampling method is not implemented: {args.method.type}')
 
@@ -419,7 +424,7 @@ def iq_loss(agent,critic_Q, current_Q, current_v, next_v, batch,step):
         num_random = 25
         if (agent.first_log):
             print(f'[critic] CQL loss ({num_random} randoms)')
-        cql_loss = agent.cqlV(obs[~is_bad.squeeze(1), ...], critic_Q, num_random) - current_Q[~is_bad].mean()
+        cql_loss = agent.cqlV(obs, critic_Q, num_random)
         loss += cql_loss
         loss_dict['critic_loss/cql_loss'] = round(cql_loss.item(),3)
         
@@ -437,16 +442,16 @@ def iq_loss(agent,critic_Q, current_Q, current_v, next_v, batch,step):
             pi_Q = agent.critic(obs, pi_action)
             pi_reward = (pi_Q - y).detach()[~is_bad]
             loss_dict['critic_loss/v0'] = round(v0.item(),3)
-            loss_dict['critic_loss/mix_reward'] = round(mix_reward.mean().item(),3)
-            loss_dict['critic_loss/bad_reward'] = round(bad_reward.mean().item(),3)
+            loss_dict['critic_loss/mix_reward'] = round(reward[~is_bad].mean().item(),3)
+            loss_dict['critic_loss/bad_reward'] = round(reward[is_bad].mean().item(),3)
             loss_dict['critic_loss/pi_reward'] = round(pi_reward.mean().item(),3)
             loss_dict['critic_loss/mix_Q'] = round(current_Q[~is_bad].mean().item(),3)
             loss_dict['critic_loss/pi_Q'] = round(pi_Q[~is_bad].mean().item(),3)
-            
             loss_dict['critic_loss/mix_logp'] = round(data_logp[~is_bad].mean().item(),3)
             loss_dict['critic_loss/bad_logp'] = round(data_logp[is_bad].mean().item(),3)
-            loss_dict['critic_loss/mix_weight'] = round(mix_weight.mean().item(),3)
-            loss_dict['critic_loss/bad_weight'] = round(bad_weight.mean().item(),3)
+            loss_dict['critic_loss/mix_weight'] = round(weight[~is_bad].mean().item(),3)
+            loss_dict['critic_loss/bad_weight'] = round(weight[is_bad].mean().item(),3)
+            
             loss_dict['True_value/C_weight'] = round(weight[is_constrained.squeeze(-1)].mean().item(),3)
             loss_dict['True_value/U_weight'] = round(weight[~is_constrained.squeeze(-1)].mean().item(),3)
             loss_dict['True_value/C_reward'] = round(all_reward[is_constrained].mean().item(),3)

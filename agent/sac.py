@@ -31,6 +31,9 @@ class SAC(object):
         self.actor = hydra.utils.instantiate(agent_cfg.actor_cfg).to(self.device)
         
         self.disc = hydra.utils.instantiate(agent_cfg.disc_cfg).to(self.device)
+        
+        self.max_v = args.agent.disc_cfg.reward_factor * 1/(1 - self.gamma)
+        print(f"Max V: {self.max_v}")
 
         self.log_alpha = torch.tensor(np.log(agent_cfg.init_temp)).to(self.device)
         self.log_alpha.requires_grad = True

@@ -313,19 +313,17 @@ class DiagGaussianActor(nn.Module):
         return action, log_prob, dist.mean
 
 class Discriminator(nn.Module):
-    def __init__(self, obs_dim, action_dim, hidden_dim, hidden_depth):
+    def __init__(self, obs_dim, action_dim, hidden_dim, hidden_depth,reward_factor):
         super(Discriminator, self).__init__()
 
-        self.trunk = utils.mlp_withdropout(obs_dim + action_dim, hidden_dim, 1, hidden_depth)
+        self.trunk = utils.mlp_withdropout(obs_dim, hidden_dim, 1, hidden_depth)
+        self.reward_factor = reward_factor
 
         self.apply(orthogonal_init_)
 
-    def forward(self, obs, action):
-        obs_action = torch.cat([obs, action], dim=-1)
-        return F.sigmoid(self.trunk(obs_action)).clip(min=0.05,max=0.95)
+    def forward(self, obs):
+        return F.sigmoid(self.trunk(obs)).clip(0.05, 0.95)
     
-    def get_weight(self,obs,action,reward_weight=False):
-        d = self.forward(obs,action)
-        if (reward_weight):
-            d[d>0.55] = 0.95
-        return torch.log(1/d - 1),d
+    def get_weight(self,obs,reward_weight=False):
+        d = self.forward(obs)
+        return -self.reward_factor * d,d

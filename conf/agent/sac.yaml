@@ -13,7 +13,9 @@ agent:
     obs_dim: ${agent.obs_dim}
     action_dim: ${agent.action_dim}
     hidden_dim: 256
-    hidden_depth: 2
+    hidden_depth: 3
+    reward_factor: 1.0
+
     
   init_temp: 1e-2 # use a low temp for IL
 
