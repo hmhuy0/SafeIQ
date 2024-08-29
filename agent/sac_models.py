@@ -109,6 +109,21 @@ class DoubleQCriticMax(nn.Module):
         else:
             return torch.max(q1, q2)
 
+class SingleV(nn.Module):
+    def __init__(self, obs_dim, action_dim, hidden_dim, hidden_depth, args):
+        super(SingleV, self).__init__()
+        self.obs_dim = obs_dim
+        self.action_dim = action_dim
+        self.args = args
+        self.V = utils.mlp(obs_dim , hidden_dim, 1, hidden_depth)
+        self.apply(orthogonal_init_)
+
+    def forward(self, obs):
+        v = self.V(obs)
+        if self.args.method.tanh:
+            v = torch.tanh(v) * 1/(1-self.args.gamma)
+
+        return v
 
 class SingleQCritic(nn.Module):
     def __init__(self, obs_dim, action_dim, hidden_dim, hidden_depth, args):
@@ -318,12 +333,20 @@ class Discriminator(nn.Module):
 
         self.trunk = utils.mlp_withdropout(obs_dim, hidden_dim, 1, hidden_depth)
         self.reward_factor = reward_factor
+        self.min_value = 0.01
+        self.max_value = 0.99
 
         self.apply(orthogonal_init_)
 
-    def forward(self, obs):
-        return F.sigmoid(self.trunk(obs)).clip(0.05, 0.95)
+    def forward(self, obs,clip=True):
+        x = F.sigmoid(self.trunk(obs))
+        if (clip):
+            x = x.clip(self.min_value, self.max_value)
+        return x
+    
     
     def get_weight(self,obs,reward_weight=False):
         d = self.forward(obs)
+        if (reward_weight):
+            d[d>0.4] = self.max_value
         return -self.reward_factor * d,d

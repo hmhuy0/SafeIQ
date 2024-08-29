@@ -32,6 +32,9 @@ class SAC(object):
         
         self.disc = hydra.utils.instantiate(agent_cfg.disc_cfg).to(self.device)
         
+        self.value = hydra.utils.instantiate(agent_cfg.value_cfg,args=args).to(self.device)
+        
+        self.reward_factor = args.agent.disc_cfg.reward_factor
         self.max_v = args.agent.disc_cfg.reward_factor * 1/(1 - self.gamma)
         print(f"Max V: {self.max_v}")
 
@@ -47,6 +50,9 @@ class SAC(object):
                                     lr=agent_cfg.actor_lr,
                                     betas=agent_cfg.actor_betas)
         self.critic_optimizer = Adam(self.critic.parameters(),
+                                     lr=agent_cfg.critic_lr,
+                                     betas=agent_cfg.critic_betas)
+        self.value_optimizer = Adam(self.value.parameters(),
                                      lr=agent_cfg.critic_lr,
                                      betas=agent_cfg.critic_betas)
         self.disc_optimizer = Adam(self.disc.parameters(),
@@ -92,16 +98,9 @@ class SAC(object):
         return action.detach().cpu().numpy()
 
     def getV(self, obs):
-        action, log_prob, _ = self.actor.sample(obs)
-        current_Q = self.critic(obs, action)
-        current_V = current_Q - self.alpha.detach() * log_prob
+        current_V = self.value(obs)
         return current_V
 
-    def get_targetV(self, obs):
-        action, log_prob, _ = self.actor.sample(obs)
-        target_Q = self.critic_target(obs, action)
-        target_V = target_Q - self.alpha.detach() * log_prob
-        return target_V
 
     def update(self, replay_buffer, logger, step):
         obs, next_obs, action, reward, done = replay_buffer.get_samples(

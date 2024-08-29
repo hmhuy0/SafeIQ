@@ -183,5 +183,5 @@ def save_state(tensor, path, num_states=5):
 
 
 def average_dicts(dict1, dict2):
-    return {key: 1/2 * (dict1.get(key, 0) + dict2.get(key, 0))
+    return {key: round(1/2 * (dict1.get(key, 0) + dict2.get(key, 0)),3)
                      for key in set(dict1) | set(dict2)}
