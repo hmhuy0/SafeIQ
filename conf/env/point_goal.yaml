@@ -9,6 +9,7 @@ env:
   eps_window: 10
   learn_steps: 1e6
   eval_interval: 1e4
+  clip_threshold: 0.55
 
 expert:
   demos: 1

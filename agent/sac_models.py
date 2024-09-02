@@ -328,13 +328,15 @@ class DiagGaussianActor(nn.Module):
         return action, log_prob, dist.mean
 
 class Discriminator(nn.Module):
-    def __init__(self, obs_dim, action_dim, hidden_dim, hidden_depth,reward_factor):
+    def __init__(self, obs_dim, action_dim, hidden_dim, hidden_depth,reward_factor,clip_threshold):
         super(Discriminator, self).__init__()
 
         self.trunk = utils.mlp_withdropout(obs_dim, hidden_dim, 1, hidden_depth)
         self.reward_factor = reward_factor
-        self.min_value = 0.01
-        self.max_value = 0.99
+        self.min_value = 0.05
+        self.max_value = 0.95
+        self.clip_threshold = clip_threshold
+        print("clip_threshold:",self.clip_threshold)
 
         self.apply(orthogonal_init_)
 
@@ -348,5 +350,6 @@ class Discriminator(nn.Module):
     def get_weight(self,obs,reward_weight=False):
         d = self.forward(obs)
         if (reward_weight):
-            d[d>0.4] = self.max_value
-        return -self.reward_factor * d,d
+            d[d>self.clip_threshold] = self.max_value
+        weight = torch.log(1-d)
+        return weight,d

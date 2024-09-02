@@ -53,7 +53,7 @@ class SAC(object):
                                      lr=agent_cfg.critic_lr,
                                      betas=agent_cfg.critic_betas)
         self.value_optimizer = Adam(self.value.parameters(),
-                                     lr=agent_cfg.critic_lr,
+                                     lr=agent_cfg.value_lr,
                                      betas=agent_cfg.critic_betas)
         self.disc_optimizer = Adam(self.disc.parameters(),
                                         lr=agent_cfg.disc_lr,
