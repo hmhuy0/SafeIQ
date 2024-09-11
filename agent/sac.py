@@ -30,7 +30,8 @@ class SAC(object):
 
         self.actor = hydra.utils.instantiate(agent_cfg.actor_cfg).to(self.device)
         
-        self.disc = hydra.utils.instantiate(agent_cfg.disc_cfg).to(self.device)
+        self.disc_mix = hydra.utils.instantiate(agent_cfg.disc_cfg).to(self.device)
+        self.disc_bad = hydra.utils.instantiate(agent_cfg.disc_cfg).to(self.device)
         
         self.value = hydra.utils.instantiate(agent_cfg.value_cfg,args=args).to(self.device)
         
@@ -55,10 +56,16 @@ class SAC(object):
         self.value_optimizer = Adam(self.value.parameters(),
                                      lr=agent_cfg.value_lr,
                                      betas=agent_cfg.critic_betas)
-        self.disc_optimizer = Adam(self.disc.parameters(),
+        
+        self.disc_mix_optimizer = Adam(self.disc_mix.parameters(),
                                         lr=agent_cfg.disc_lr,
                                         betas=agent_cfg.disc_betas,
                                         weight_decay=1e-4)
+        self.disc_bad_optimizer = Adam(self.disc_bad.parameters(),
+                                        lr=agent_cfg.disc_lr,
+                                        betas=agent_cfg.disc_betas,
+                                        weight_decay=1e-4)
+        
         self.log_alpha_optimizer = Adam([self.log_alpha],
                                         lr=agent_cfg.alpha_lr,
                                         betas=agent_cfg.alpha_betas)
@@ -70,6 +77,24 @@ class SAC(object):
         self.training = training
         self.actor.train(training)
         self.critic.train(training)
+
+    def get_weight(self,obs,is_bad=None):
+        mix_d = self.disc_mix(obs)
+        bad_d = self.disc_bad(obs)
+        weight = bad_d/mix_d 
+        
+        tmp_weight = weight.clone()
+        if (is_bad is not None):
+            tmp_weight = tmp_weight[~is_bad]
+            
+        lower_percentile = torch.quantile(tmp_weight, 0.1).item()
+        upper_percentile = torch.quantile(tmp_weight, 0.9).item()
+        
+        weight = weight.clip(lower_percentile, upper_percentile)
+
+        # normalize to [-self.reward_factor,0]
+        norm_weght = -(weight - weight.min())/(weight.max() - weight.min())*self.reward_factor
+        return norm_weght
 
     @property
     def alpha(self):

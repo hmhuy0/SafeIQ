@@ -19,6 +19,9 @@ train:
 expert:
   demos: 1
   subsample_freq: 1
+  n_mix_good: 400
+  n_mix_bad: 1600
+  n_bad: 100
 
 eval:
   policy: 
@@ -48,6 +51,8 @@ log_dir: logs/
 save_interval: 5 # Save networks every this many epochs
 hydra_base_dir: ""
 eval_only: False
+
+wandb_log: False
 
 # Do offline learning
 offline: False

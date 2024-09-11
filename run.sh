@@ -1,13 +1,58 @@
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/hoang/.mujoco/mujoco210/bin
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/nvidia
+#!/bin/bash
 
-CUDA_VISIBLE_DEVICES=2 python train_safeiq.py env=point_button agent=sac \
-method.loss=no method.chi=True agent.init_temp=0.001 \
-agent.actor_lr=3e-5 agent.disc_lr=1e-4 train.batch=512 \
-env.eval_interval=5000 eval.eps=25 seed=0 env.learn_steps=3e6 \
-agent.cql=False agent.pen_bad=True agent.disc_cfg.reward_factor=3.0 \
-env.clip_threshold=0.75
+#################################################
+## TEMPLATE VERSION 1.01                       ##
+#################################################
+## ALL SBATCH COMMANDS WILL START WITH #SBATCH ##
+## DO NOT REMOVE THE # SYMBOL                  ## 
+#################################################
 
-# CUDA_VISIBLE_DEVICES=1 python train_bc.py env=point_button agent=sac \
-# agent.actor_lr=1e-4 \
-# env.eval_interval=5000 seed=0
+#SBATCH --nodes=1                   # How many nodes required? Usually 1
+#SBATCH --cpus-per-task=16           # Number of CPU to request for the job
+#SBATCH --mem=128GB                   # How much memory does your job require?
+#SBATCH --gres=gpu:1                # Do you require GPUS? If not delete this line
+#SBATCH --time=05-00:00:00          # How long to run the job for? Jobs exceed this time will be terminated
+                                    # Format <DD-HH:MM:SS> eg. 5 days 05-00:00:00
+                                    # Format <DD-HH:MM:SS> eg. 24 hours 1-00:00:00 or 24:00:00
+#SBATCH --output=logs/test_%j.out          # Where should the log files go?
+                                    # You must provide an absolute path eg /common/home/module/username/
+                                    # If no paths are provided, the output file will be placed in your current working directory
+#SBATCH --prefer=48gb
+################################################################
+## EDIT AFTER THIS LINE IF YOU ARE OKAY WITH DEFAULT SETTINGS ##
+################################################################
+
+#SBATCH --partition=researchlong                 #  researchlong pradeepresearch
+#SBATCH --account=pradeepresearch   # The account you've been assigned (normally student)
+#SBATCH --qos=mhhoang-20240209        # mhhoang-20240209 research-1-qos pradeepresearch-priority
+#SBATCH --job-name=UNIQ     # Give the job a name
+
+#################################################
+##            END OF SBATCH COMMANDS           ##
+#################################################
+
+# Purge the environment, load the modules we require.
+# Refer to https://violet.smu.edu.sg/origami/module/ for more information
+module purge
+module load Anaconda3/2022.05
+
+# Create a virtual environment can be commented off if you already have a virtual environment
+# conda create -n myenvnamehere
+
+# Do not remove this line even if you have executed conda init
+eval "$(conda shell.bash hook)"
+
+# This command assumes that you've already created the environment previously
+# We're using an absolute path here. You may use a relative path, as long as SRUN is execute in the same working directory
+conda activate IQ
+
+# conda install -c conda-forge glew
+# conda install -c conda-forge mesalib
+# conda install -c menpo glfw3
+# export CPATH=$CONDA_PREFIX/include
+# pip install patchelf
+
+
+srun whichgpu
+srun --gres=gpu:1 python -u run_experiments.py
+

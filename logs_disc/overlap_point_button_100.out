@@ -1,0 +1,185 @@
+You are allocated NVIDIA L40 on lagoon
+You are using GPU 2
+exp_name: ''
+project_name: ${env.name}
+cuda_deterministic: false
+device: cuda:0
+gamma: 0.99
+seed: 0
+pretrain: null
+num_seed_steps: 0
+only_expert_states: false
+train:
+  batch: 512
+  use_target: true
+  soft_update: true
+expert:
+  demos: 1
+  subsample_freq: 1
+  n_mix_good: 400
+  n_mix_bad: 1600
+  n_bad: 100
+eval:
+  policy: null
+  threshold: null
+  use_baselines: false
+  eps: 25
+  transfer: false
+  expert_env: ''
+  n_envs: 25
+env:
+  replay_mem: 1000000.0
+  initial_mem: 1280
+  eps_steps: 100000
+  eps_window: 10
+  learn_steps: 2000000.0
+  eval_interval: 10000
+  from_pixels: false
+  name: SafetyPointButton1-v0
+  clip_threshold: 1
+method:
+  type: iq
+  loss: v0
+  constrain: false
+  grad_pen: false
+  chi: true
+  tanh: false
+  regularize: false
+  div: null
+  alpha: 0.5
+  lambda_gp: 10
+  mix_coeff: 1
+log_interval: 500
+log_dir: logs/
+save_interval: 5
+hydra_base_dir: /common/scratch/users/m/mhhoang/SafeIQ/outputs/2024-09-04/22-43-47
+eval_only: false
+wandb_log: false
+offline: false
+num_actor_updates: 1
+agent:
+  name: sac
+  _target_: agent.sac.SAC
+  obs_dim: ???
+  action_dim: ???
+  critic_cfg: ${q_net}
+  actor_cfg: ${diag_gaussian_actor}
+  disc_cfg:
+    _target_: agent.sac_models.Discriminator
+    obs_dim: ${agent.obs_dim}
+    action_dim: ${agent.action_dim}
+    hidden_dim: 256
+    hidden_depth: 3
+    reward_factor: 3.0
+    clip_threshold: ${env.clip_threshold}
+  value_cfg: ${value_network}
+  init_temp: 0.001
+  alpha_lr: 0.0003
+  alpha_betas:
+  - 0.9
+  - 0.999
+  actor_lr: 0.0001
+  actor_betas:
+  - 0.9
+  - 0.999
+  actor_update_frequency: 1
+  disc_lr: 0.0001
+  disc_betas:
+  - 0.9
+  - 0.999
+  value_lr: 3.0e-05
+  critic_lr: 0.0003
+  critic_betas:
+  - 0.9
+  - 0.999
+  critic_tau: 0.005
+  critic_target_update_frequency: 1
+  pen_bad: true
+  cql: false
+  learn_temp: false
+  vdice_actor: false
+q_net:
+  _target_: agent.sac_models.DoubleQCritic
+  obs_dim: ${agent.obs_dim}
+  action_dim: ${agent.action_dim}
+  hidden_dim: 256
+  hidden_depth: 3
+diag_gaussian_actor:
+  _target_: agent.sac_models.DiagGaussianActor
+  obs_dim: ${agent.obs_dim}
+  action_dim: ${agent.action_dim}
+  hidden_dim: 256
+  hidden_depth: 3
+  log_std_bounds:
+  - -5
+  - 2
+value_network:
+  _target_: agent.sac_models.SingleV
+  obs_dim: ${agent.obs_dim}
+  action_dim: ${agent.action_dim}
+  hidden_dim: 256
+  hidden_depth: 3
+
+--> Using SAC agent
+clip_threshold: 1
+clip_threshold: 1
+Max V: 299.9999999999997
+expert: /common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/collect_C/mix_data.hdf5, 400/1582 trajectories
+dataset shape: (400000, 76) (400000, 2) (400000, 76) (400000,)
+Return = 15.75 +- 7.07, Cost rate = 0.024
+expert: /common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/collect_U/mix_data.hdf5, 1600/2500 trajectories
+dataset shape: (1600000, 76) (1600000, 2) (1600000, 76) (1600000,)
+Return = 30.00 +- 5.28, Cost rate = 0.130
+--> mix memory size: 2000000
+expert: /common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/collect_U/bad_data.hdf5, 100/2332 trajectories
+dataset shape: (100000, 76) (100000, 2) (100000, 76) (100000,)
+Return = 28.40 +- 5.79, Cost rate = 0.144
+--> Bad memory size: 100000
+
+
+run name = our(v0)-penB
+/common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/Disc
+overlap_state_disc_C(400)_U(1600)_B(100)
+Pretrain disc mix
+/common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/Disc/mix_overlap_state_disc_C(400)_U(1600)_B(100)
+0/50000 dif = 0.002 {'disc/mix': 0.598, 'disc/bad': 0.6, 'disc/mix_good': 0.591, 'disc/mix_bad': 0.601, 'disc/good_weight': -1.528, 'disc/bad_weight': -1.786, 'disc/dif_weight': 0.258, 'disc/clip_threshold': 0.601}
+1000/50000 dif = 0.029 {'disc/mix': 0.612, 'disc/bad': 0.583, 'disc/mix_good': 0.743, 'disc/mix_bad': 0.581, 'disc/good_weight': -2.451, 'disc/bad_weight': -1.446, 'disc/dif_weight': -1.005, 'disc/clip_threshold': 0.581}
+2000/50000 dif = 0.040 {'disc/mix': 0.621, 'disc/bad': 0.581, 'disc/mix_good': 0.776, 'disc/mix_bad': 0.582, 'disc/good_weight': -2.442, 'disc/bad_weight': -1.359, 'disc/dif_weight': -1.083, 'disc/clip_threshold': 0.582}
+3000/50000 dif = 0.048 {'disc/mix': 0.631, 'disc/bad': 0.583, 'disc/mix_good': 0.795, 'disc/mix_bad': 0.588, 'disc/good_weight': -2.502, 'disc/bad_weight': -1.424, 'disc/dif_weight': -1.078, 'disc/clip_threshold': 0.588}
+4000/50000 dif = 0.076 {'disc/mix': 0.656, 'disc/bad': 0.58, 'disc/mix_good': 0.837, 'disc/mix_bad': 0.611, 'disc/good_weight': -2.638, 'disc/bad_weight': -1.594, 'disc/dif_weight': -1.043, 'disc/clip_threshold': 0.611}
+5000/50000 dif = 0.122 {'disc/mix': 0.668, 'disc/bad': 0.546, 'disc/mix_good': 0.849, 'disc/mix_bad': 0.624, 'disc/good_weight': -2.624, 'disc/bad_weight': -1.701, 'disc/dif_weight': -0.924, 'disc/clip_threshold': 0.624}
+6000/50000 dif = 0.160 {'disc/mix': 0.674, 'disc/bad': 0.514, 'disc/mix_good': 0.84, 'disc/mix_bad': 0.634, 'disc/good_weight': -2.586, 'disc/bad_weight': -1.752, 'disc/dif_weight': -0.835, 'disc/clip_threshold': 0.634}
+7000/50000 dif = 0.204 {'disc/mix': 0.678, 'disc/bad': 0.474, 'disc/mix_good': 0.849, 'disc/mix_bad': 0.634, 'disc/good_weight': -2.631, 'disc/bad_weight': -1.77, 'disc/dif_weight': -0.861, 'disc/clip_threshold': 0.634}
+save disc mix to  /common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/Disc/mix_overlap_state_disc_C(400)_U(1600)_B(100)
+--------------------
+Pretrain disc bad
+/common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/Disc/bad_overlap_state_disc_C(400)_U(1600)_B(100)
+0/50000 dif = 0.001 {'disc/mix': 0.511, 'disc/bad': 0.51, 'disc/mix_good': 0.514, 'disc/mix_bad': 0.51, 'disc/good_weight': -1.772, 'disc/bad_weight': -1.685, 'disc/dif_weight': -0.086, 'disc/clip_threshold': 0.51}
+1000/50000 dif = 0.012 {'disc/mix': 0.607, 'disc/bad': 0.619, 'disc/mix_good': 0.559, 'disc/mix_bad': 0.619, 'disc/good_weight': -1.175, 'disc/bad_weight': -1.988, 'disc/dif_weight': 0.813, 'disc/clip_threshold': 0.619}
+2000/50000 dif = 0.042 {'disc/mix': 0.616, 'disc/bad': 0.658, 'disc/mix_good': 0.472, 'disc/mix_bad': 0.648, 'disc/good_weight': -1.021, 'disc/bad_weight': -1.966, 'disc/dif_weight': 0.945, 'disc/clip_threshold': 0.648}
+3000/50000 dif = 0.063 {'disc/mix': 0.604, 'disc/bad': 0.667, 'disc/mix_good': 0.417, 'disc/mix_bad': 0.651, 'disc/good_weight': -0.835, 'disc/bad_weight': -1.763, 'disc/dif_weight': 0.928, 'disc/clip_threshold': 0.651}
+4000/50000 dif = 0.086 {'disc/mix': 0.607, 'disc/bad': 0.693, 'disc/mix_good': 0.387, 'disc/mix_bad': 0.663, 'disc/good_weight': -0.765, 'disc/bad_weight': -1.755, 'disc/dif_weight': 0.991, 'disc/clip_threshold': 0.663}
+5000/50000 dif = 0.118 {'disc/mix': 0.601, 'disc/bad': 0.719, 'disc/mix_good': 0.37, 'disc/mix_bad': 0.656, 'disc/good_weight': -0.795, 'disc/bad_weight': -1.805, 'disc/dif_weight': 1.01, 'disc/clip_threshold': 0.656}
+6000/50000 dif = 0.159 {'disc/mix': 0.584, 'disc/bad': 0.743, 'disc/mix_good': 0.348, 'disc/mix_bad': 0.647, 'disc/good_weight': -0.763, 'disc/bad_weight': -1.797, 'disc/dif_weight': 1.034, 'disc/clip_threshold': 0.647}
+7000/50000 dif = 0.193 {'disc/mix': 0.566, 'disc/bad': 0.759, 'disc/mix_good': 0.311, 'disc/mix_bad': 0.629, 'disc/good_weight': -0.711, 'disc/bad_weight': -1.776, 'disc/dif_weight': 1.065, 'disc/clip_threshold': 0.629}
+8000/50000 dif = 0.225 {'disc/mix': 0.54, 'disc/bad': 0.765, 'disc/mix_good': 0.305, 'disc/mix_bad': 0.601, 'disc/good_weight': -0.713, 'disc/bad_weight': -1.689, 'disc/dif_weight': 0.976, 'disc/clip_threshold': 0.601}
+save disc bad to  /common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/Disc/bad_overlap_state_disc_C(400)_U(1600)_B(100)
+--------------------
+Traceback (most recent call last):
+  File "/common/scratch/users/m/mhhoang/SafeIQ/train_safeiq.py", line 193, in main
+    raise
+RuntimeError: No active exception to reraise
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.
+All scripts have finished running.
+Job ID: 82391
+Cluster: crimson
+User/Group: mhhoang/mhhoang
+State: COMPLETED (exit code 0)
+Nodes: 1
+Cores per node: 10
+CPU Utilized: 00:12:21
+CPU Efficiency: 11.01% of 01:52:10 core-walltime
+Job Wall-clock time: 00:11:13
+Memory Utilized: 20.87 GB
+Memory Efficiency: 16.30% of 128.00 GB

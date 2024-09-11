@@ -115,22 +115,20 @@ def merge_dataset(c_dataset,u_dataset):
 @hydra.main(config_path="conf", config_name="config")
 def main(cfg: DictConfig):
     args = get_args(cfg)
-    n_mix_good = 400
-    n_mix_bad = 1600
-    n_bad = 100
+    n_mix_good = args.expert.n_mix_good
+    n_mix_bad = args.expert.n_mix_bad
+    n_bad = args.expert.n_bad
     
-    run_name = f'safeIQ(B={n_bad})'
+    run_name = f'final-our({args.method.loss})'
     if (args.agent.pen_bad):
-        run_name += '-pen'
-    if (args.agent.cql):
-        run_name += '-cql'
-    run_name += f'-clip({args.env.clip_threshold})'
+        run_name += '-penB'
         
-    wandb.login(key="2b82ac1a4a3010132ac1ba34948e6d705cd6343b")
-    wandb.init(project=f'SafeIQ', settings=wandb.Settings(_disable_stats=True), \
-            group=f'exp-{args.env.name}',
-            job_type=run_name,
-            name=f'{args.seed}', entity='hmhuy')
+    if (args.wandb_log):
+        wandb.login(key="2b82ac1a4a3010132ac1ba34948e6d705cd6343b")
+        wandb.init(project=f'SafeIQ-{args.env.name}', settings=wandb.Settings(_disable_stats=True), \
+                group=f'(mixG-mixB-B)=({n_mix_good}-{n_mix_bad}-{n_bad})',
+                job_type=run_name,
+                name=f'{args.seed}', entity='hmhuy')
     
     print(OmegaConf.to_yaml(cfg))
     
@@ -161,6 +159,9 @@ def main(cfg: DictConfig):
     u_data_path = hydra.utils.to_absolute_path(f'experts/{args.env.name}/collect_U/mix_data.hdf5')
     u_dataset = load_dataset(u_data_path,num_trajectories=n_mix_bad,seed=1)
     dataset = merge_dataset(c_dataset=c_dataset, u_dataset=u_dataset)
+    del c_dataset
+    del u_dataset
+    
     mix_memory_replay = Memory(1, args.seed)
     mix_memory_replay.load_from_data(dataset)
     print(f'--> mix memory size: {mix_memory_replay.size()}')
@@ -177,6 +178,8 @@ def main(cfg: DictConfig):
     best_eval_returns = -np.inf
     learn_steps = 0
 
+
+
     # IQ-Learn Modification
     agent.update = types.MethodType(iq_update, agent)
     agent.update_critic = types.MethodType(update_critic, agent)
@@ -185,25 +188,33 @@ def main(cfg: DictConfig):
     agent.pretrain_disc = types.MethodType(pretrain_disc, agent)
     
     disc_path = f'{hydra.utils.to_absolute_path("experts")}/{args.env.name}/Disc'
-    agent.pretrain_disc(mix_memory_replay,bad_memory_replay,disc_path,f'final_overlap_state_disc_C(400)_U(1600)_B({n_bad})')
-    agent.disc.eval()
-
+    agent.pretrain_disc(mix_memory_replay,bad_memory_replay,disc_path,f'state_disc_C({n_mix_good})_U({n_mix_bad})_B({n_bad})')
+    agent.disc_mix.eval()
+    agent.disc_bad.eval()
+    
     for learn_steps in range(LEARN_STEPS+1):
-        if (learn_steps%100 == 0):
-            print(f'{learn_steps}/{LEARN_STEPS}'
-            , end='\r')
         info = {}
+        if (learn_steps % 1000 == 0):
+            print(f'[{learn_steps}/{LEARN_STEPS}]')
         info.update(agent.update(mix_memory_replay,
                                  bad_memory_replay, learn_steps))
         
         if learn_steps % args.env.eval_interval == 0:
             eval_returns,eval_costs,cost_rate = eval_parallel(agent, eval_env, num_episodes=args.eval.eps,args = args)
+            def top_10_percent_numpy(lst):
+                np_array = np.array(lst)
+                sorted_array = np.sort(np_array)[::-1]
+                top_10_count = int(len(sorted_array) * 0.1)
+                return sorted_array[:top_10_count]
+            
             returns = np.mean(eval_returns)
+            cvar_cost = np.mean(top_10_percent_numpy(eval_costs))
             costs = np.mean(eval_costs)
-            print(f'[Eval {learn_steps/LEARN_STEPS:.1f}%] Returns: {returns:.2f}, Costs: {costs:.2f}')
+            print(f'[Eval {learn_steps/LEARN_STEPS*100:.1f}%] Returns: {returns:.2f}, Costs: {costs:.2f}, CVaR: {cvar_cost:.2f}, Cost rate: {cost_rate:.3f}')
             info.update({
                 'eval/returns': round(returns, 3),
                 'eval/costs': round(costs,3),
+                'eval/cvar_cost': round(cvar_cost,3),
                 'eval/cost_rate': round(cost_rate,3),
             })
             try:
@@ -215,23 +226,116 @@ def main(cfg: DictConfig):
 
 def pretrain_disc(self, mix_buffer, bad_buffer, disc_path,file_name,total_step = 50000):
     os.makedirs(disc_path, exist_ok=True)
-    file_path = f'{disc_path}/{file_name}'
-    print(file_path)
+    print(disc_path)
+    print(file_name)
     
-    if (os.path.isfile(file_path)):
-        print('load disc from ',file_path)
-        self.disc.load_state_dict(torch.load(file_path, map_location=self.device))
+    mix_path = f'{disc_path}/mix_{file_name}'
+    bad_path = f'{disc_path}/bad_{file_name}'
+    
+    if (os.path.isfile(mix_path)):
+        print('load mix disc from ',mix_path)
+        self.disc_mix.load_state_dict(torch.load(mix_path, map_location=self.device))
+        print('load bad disc from ',bad_path)
+        self.disc_bad.load_state_dict(torch.load(bad_path, map_location=self.device))
     else:
-        print('Pretrain disc')
+        print('Pretrain disc mix')
+        print(mix_path)
         for itr in range(total_step+1):
-            info = self.update_disc(mix_buffer,bad_buffer, itr)
+            info = self.update_disc(mix_buffer,bad_buffer,mix_path, itr)
             if (itr%1000 == 0):
-                print(f'{itr}/{total_step} dif = {info["disc/bad"] - info["disc/mix"]:.3f}',info)
-                if (info['disc/bad'] - info['disc/mix'] >0.2):
+                print(f'{itr}/{total_step} dif = {abs(info["disc/bad"] - info["disc/mix"]):.3f}',info)
+                if (abs(info['disc/bad'] - info['disc/mix']) >0.2):
+                    break
+        torch.save(self.disc_mix.state_dict(), mix_path)
+        print('save disc mix to ',mix_path)      
+        print('-'*20)       
+   
+        print('Pretrain disc bad')
+        print(bad_path)
+        for itr in range(total_step+1):
+            info = self.update_disc(mix_buffer,bad_buffer,bad_path, itr)
+            if (itr%1000 == 0):
+                print(f'{itr}/{total_step} dif = {abs(info["disc/bad"] - info["disc/mix"]):.3f}',info)
+                if (abs(info['disc/bad'] - info['disc/mix']) >0.2):
                     break
                 
-        torch.save(self.disc.state_dict(), file_path)
-        print('save disc to ',file_path)
+        torch.save(self.disc_bad.state_dict(), bad_path)
+        print('save disc bad to ',bad_path)      
+        print('-'*20)          
+
+def update_disc(self,mix_buffer,bad_buffer,file_path,step):
+    if ('mix' in file_path.split('/')[-1]):
+        self.disc = self.disc_mix
+        self.disc_optimizer = self.disc_mix_optimizer
+    else:
+        self.disc = self.disc_bad
+        self.disc_optimizer = self.disc_bad_optimizer
+        
+    mix_batch       = mix_buffer.get_samples(1024, self.device, noise=0.0)
+    bad_batch       = bad_buffer.get_samples(1024, self.device, noise=0.0)
+    mix_obs, mix_next_obs, mix_action, _,_, _,mix_is_constrained = mix_batch
+    bad_obs, bad_next_obs, bad_action, _,_, _,bad_is_constrained = bad_batch
+
+    mix_d = self.disc(mix_obs)
+    bad_d = self.disc(bad_obs)
+    
+    if ('bad' in file_path.split('/')[-1]):
+        loss_bad = - torch.log(bad_d).mean()
+        loss_mix = - torch.log(1-mix_d).mean()
+        
+        # if ('overlap' in file_path.split('/')[-1]):
+        #     loss_mix = -1.5 * torch.log(1-mix_d).mean() + torch.log(1-bad_d).mean()
+        # else:
+        #     loss_mix = - torch.log(1-mix_d).mean()
+    else:
+        loss_bad = - torch.log(1-bad_d).mean()
+        loss_mix = - torch.log(mix_d).mean()
+        
+        # if ('overlap' in file_path.split('/')[-1]):
+        #     loss_mix = -1.5 * torch.log(mix_d).mean() + torch.log(bad_d).mean()
+        # else:
+        #     loss_mix = - torch.log(mix_d).mean()
+        
+    
+    # if ('overlap' in file_path.split('/')[-1] and 
+    #     'bad' in file_path.split('/')[-1]):
+    #     loss_mix = -1.5 * torch.log(1-mix_d).mean() + torch.log(1-bad_d).mean()
+    # else:
+    #     loss_mix = - torch.log(1-mix_d).mean()
+        
+    # if ('overlap' in file_path.split('/')[-1] and 
+    #     'good' in file_path.split('/')[-1]):
+    #     loss_bad = -1.5 * torch.log(bad_d).mean() + torch.log(mix_d).mean()
+    # else:
+    #     loss_bad = - torch.log(bad_d).mean()
+        
+    loss = loss_mix + loss_bad
+    
+    
+    self.disc_optimizer.zero_grad()
+    loss.backward()
+    self.disc_optimizer.step()
+    info = {}
+    
+    if (step%1000 == 0):
+        mix_batch       = mix_buffer.get_samples(5000, self.device)
+        bad_batch       = bad_buffer.get_samples(5000, self.device)
+        self.disc.eval()
+        mix_obs, mix_next_obs, mix_action, _,_, _,mix_is_constrained = mix_batch
+        bad_obs, bad_next_obs, bad_action, _,_, _,bad_is_constrained = bad_batch
+
+        mix_d = self.disc(mix_obs)
+        bad_d = self.disc(bad_obs)
+
+        self.disc.train()
+    
+        info = {
+            'disc/mix': round(mix_d.mean().item(),3),
+            'disc/bad': round(bad_d.mean().item(),3),
+            'disc/mix_good': round(mix_d[mix_is_constrained.squeeze(-1)].mean().item(),3),
+            'disc/mix_bad': round(mix_d[~mix_is_constrained.squeeze(-1)].mean().item(),3),
+        }
+    return info
             
 def save(agent, epoch, args, output_dir='results'):
     if not os.path.exists(output_dir):
@@ -247,7 +351,7 @@ def update_value(self, obs, action, next_obs, step):
     args = self.args
     cur_V = self.getV(obs)
     with torch.no_grad():
-        cur_Q = self.critic(obs, action)
+        cur_Q = self.critic_target(obs, action)
         
     loss = iql_loss(cur_V,cur_Q,0.7)
     
@@ -272,7 +376,6 @@ def update_critic(self, mix_batch, bad_batch, step):
     agent = self
     
     # update V
-    
     infos = update_value(self, obs, action, next_obs, step)
     
     # update Q    
@@ -287,6 +390,7 @@ def update_critic(self, mix_batch, bad_batch, step):
         # merge loss dicts
         loss_dict = average_dicts(loss_dict1, loss_dict2)
     else:
+        raise NotImplementedError
         current_Q = self.critic(obs, action)
         critic_loss, loss_dict = iq_loss(agent, current_Q, current_V, next_V, batch,step)
     infos.update(loss_dict)
@@ -300,17 +404,19 @@ def update_critic(self, mix_batch, bad_batch, step):
 def update_actor_BC(self, obs, exp_action,next_obs,
                     done,env_cost,is_constrained,step):
     with torch.no_grad():
-        disc_reward,disc_prob = self.disc.get_weight(obs,reward_weight=True)
-        Qs = self.critic(obs,exp_action).clip(min=-self.max_v,max=self.max_v)
+        Qs = self.critic_target(obs,exp_action).clip(min=-self.max_v,max=self.max_v)
         current_V = self.getV(obs).clip(min=-self.max_v,max=self.max_v)
+        
+        cur_weight = self.get_weight(obs) + self.gamma * self.get_weight(next_obs)
+        disc_weight = (1/(cur_weight**2)).clip(min=0,max=100)
 
-        Q_adv = Qs - current_V
-        disc_weight = 1 - disc_prob
-        adv = Q_adv 
+        Q_adv = (Qs - current_V).clip(max=10)
+        adv = Q_adv
         
         adv_weight = torch.exp(adv - adv.max())
         adv_weight = adv_weight / adv_weight.mean()
-        weight = adv_weight*disc_weight
+        
+        weight = (adv_weight*disc_weight).clip(max=100)
         
     logp = self.actor.get_logp(obs,exp_action).clip(min=self.min_logp,max=self.max_logp)
     
@@ -325,18 +431,15 @@ def update_actor_BC(self, obs, exp_action,next_obs,
             'actor_BC_loss/C_weight': round(weight[is_constrained.squeeze(-1)].mean().item(),3),
             'actor_BC_loss/U_weight': round(weight[~is_constrained.squeeze(-1)].mean().item(),3),
             
-            'disc/C_prob': round(disc_prob[is_constrained.squeeze(-1)].mean().item(),3),
-            'disc/U_prob': round(disc_prob[~is_constrained.squeeze(-1)].mean().item(),3),
+            'histogram/C_weight': wandb.Histogram(weight[is_constrained.squeeze(-1)].cpu().numpy()),
+            'histogram/U_weight': wandb.Histogram(weight[~is_constrained.squeeze(-1)].cpu().numpy()),
             
-            'histogram/C_prob': wandb.Histogram(disc_prob[is_constrained.squeeze(-1)].cpu().numpy()),
-            'histogram/U_prob': wandb.Histogram(disc_prob[~is_constrained.squeeze(-1)].cpu().numpy()),
+            'actor_BC_loss/C_disc_weight': round(disc_weight[is_constrained.squeeze(-1)].mean().item(),3),
+            'actor_BC_loss/U_disc_weight': round(disc_weight[~is_constrained.squeeze(-1)].mean().item(),3),
 
-            'actor_BC_loss/C_disc_weight': round(disc_weight[is_constrained].mean().item(),3),
-            'actor_BC_loss/U_disc_weight': round(disc_weight[~is_constrained].mean().item(),3),
-            
-            'actor_BC_loss/C_disc_reward': round(disc_reward[is_constrained.squeeze(-1)].mean().item(),3),
-            'actor_BC_loss/U_disc_reward': round(disc_reward[~is_constrained.squeeze(-1)].mean().item(),3),
-            
+            'histogram/C_disc_weight': wandb.Histogram(disc_weight[is_constrained.squeeze(-1)].cpu().numpy()),
+            'histogram/U_disc_weight': wandb.Histogram(disc_weight[~is_constrained.squeeze(-1)].cpu().numpy()),
+
             'actor_BC_loss/C_adv': round(Q_adv[is_constrained.squeeze(-1)].mean().item(),3),
             'actor_BC_loss/U_adv': round(Q_adv[~is_constrained.squeeze(-1)].mean().item(),3),
             
@@ -347,58 +450,13 @@ def update_actor_BC(self, obs, exp_action,next_obs,
         }
     return loss_dict
 
-def update_disc(self,mix_buffer,bad_buffer,step):
-    mix_batch       = mix_buffer.get_samples(1024, self.device, noise=0.0)
-    bad_batch       = bad_buffer.get_samples(1024, self.device, noise=0.0)
-    mix_obs, mix_next_obs, mix_action, _,_, _,mix_is_constrained = mix_batch
-    bad_obs, bad_next_obs, bad_action, _,_, _,bad_is_constrained = bad_batch
-
-    mix_d = self.disc(mix_obs)
-    bad_d = self.disc(bad_obs)
-    
-    loss_mix = -1.5 * torch.log(1-mix_d).mean() + torch.log(1-bad_d).mean()
-    loss_bad = - torch.log(bad_d).mean()
-    loss = loss_mix + loss_bad
-    
-    self.disc_optimizer.zero_grad()
-    loss.backward()
-    self.disc_optimizer.step()
-    info = {}
-    
-    if (step%1000 == 0):
-        mix_batch       = mix_buffer.get_samples(5000, self.device)
-        bad_batch       = bad_buffer.get_samples(5000, self.device)
-        self.disc.eval()
-        mix_obs, mix_next_obs, mix_action, _,_, _,mix_is_constrained = mix_batch
-        bad_obs, bad_next_obs, bad_action, _,_, _,bad_is_constrained = bad_batch
-
-        mix_d = self.disc(mix_obs)
-        bad_d = self.disc(bad_obs)
-        self.disc.clip_threshold = round(mix_d[~mix_is_constrained.squeeze(-1)].mean().item(),3)
-
-        weight,_ = self.disc.get_weight(mix_obs,reward_weight=True)
-
-        self.disc.train()
-    
-        info = {
-            'disc/mix': round(mix_d.mean().item(),3),
-            'disc/bad': round(bad_d.mean().item(),3),
-            'disc/mix_good': round(mix_d[mix_is_constrained.squeeze(-1)].mean().item(),3),
-            'disc/mix_bad': round(mix_d[~mix_is_constrained.squeeze(-1)].mean().item(),3),
-            'disc/good_weight': round(weight[mix_is_constrained.squeeze(-1)].mean().item(),3),
-            'disc/bad_weight': round(weight[~mix_is_constrained.squeeze(-1)].mean().item(),3),
-            'disc/dif_weight': round(weight[mix_is_constrained.squeeze(-1)].mean().item() - weight[~mix_is_constrained.squeeze(-1)].mean().item(),3),
-            'disc/clip_threshold': self.disc.clip_threshold,
-        }
-    return info
-
 def iq_update(self, mix_buffer,bad_buffer, step):
     mix_batch       = mix_buffer.get_samples(self.batch_size, self.device)
     bad_batch       = bad_buffer.get_samples(self.batch_size, self.device)
 
     info = self.update_critic(mix_batch,bad_batch, step)
-    # info.update(self.update_disc(mix_batch,bad_batch, step))
     
+    mix_batch       = mix_buffer.get_samples(self.batch_size*2, self.device)
     obs, next_obs, action, env_reward,env_cost, done,is_constrained = mix_batch
     info.update(self.update_actor_BC(obs,action,next_obs,done,env_cost,is_constrained, step))
 
@@ -421,8 +479,9 @@ def iq_loss(agent,critic_Q, current_Q, next_v, batch,step):
 
     y = (1 - done) * gamma * next_v
     with torch.no_grad():
-        cur_weight,_ = agent.disc.get_weight(obs,reward_weight=True)
-        weight = cur_weight
+        cur_weight = agent.get_weight(obs,is_bad)
+        next_weight = agent.get_weight(next_obs,is_bad)
+        weight = (cur_weight + gamma * next_weight).clip(min=-agent.reward_factor,max=agent.reward_factor)
         
     reward = (current_Q - y)
     if (not args.agent.pen_bad):
@@ -438,6 +497,19 @@ def iq_loss(agent,critic_Q, current_Q, next_v, batch,step):
     chi2_loss = 0.5 * (all_reward**2).mean()
     
     loss = reward_loss + chi2_loss
+    
+    if args.method.loss == "v0":
+        if (agent.first_log):
+            print('[critic] v0 value loss')
+        pi_action,_,_ = agent.actor.sample(obs)
+        v0 = agent.critic(obs, pi_action).mean()
+        v0_loss = (1 - gamma) * v0
+        loss += v0_loss
+    elif args.method.loss == "no":
+        if (agent.first_log):
+            print('[critic] no value loss')
+    else:
+        raise NotImplementedError
 
     if (step%args.env.eval_interval == 0):
         with torch.no_grad():

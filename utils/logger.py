@@ -4,7 +4,6 @@ import os
 import csv
 import shutil
 import torch
-import torchvision
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from termcolor import colored

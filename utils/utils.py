@@ -3,7 +3,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-from torchvision.utils import make_grid, save_image
 
 
 class eval_mode(object):
@@ -26,14 +25,11 @@ def eval_parallel(actor, env, num_episodes, args):
     total_costs = []
     total_steps = 0
     while len(total_returns) < num_episodes:
-        print(f'[Eval] {len(total_returns)}/{num_episodes}'
-            , end='\r')
         state,_ = env.reset()
-        done = [False]
         total_return = np.array([0.0 for _ in range(args.eval.n_envs)])
         total_cost = np.array([0.0 for _ in range(args.eval.n_envs)])
         with eval_mode(actor):
-            while not np.max(done):
+            while True:
                 action = actor.get_batch_action(state, sample=False)
                 next_state, reward,cost, done,trunc, info = env.step(action)
                 state = next_state
@@ -178,7 +174,7 @@ def save_state(tensor, path, num_states=5):
     tensor = tensor[:num_states]
     B, C, H, W = tensor.shape
     images = tensor.reshape(-1, 1, H, W).cpu()
-    save_image(images, path, nrow=num_states)
+    # save_image(images, path, nrow=num_states)
     # make_grid(images)
 
 

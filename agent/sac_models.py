@@ -348,6 +348,8 @@ class Discriminator(nn.Module):
     
     
     def get_weight(self,obs,reward_weight=False):
+        raise NotImplementedError
+    
         d = self.forward(obs)
         if (reward_weight):
             d[d>self.clip_threshold] = self.max_value

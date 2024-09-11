@@ -1,0 +1,192 @@
+You are allocated NVIDIA L40 on lagoon
+You are using GPU 1
+exp_name: ''
+project_name: ${env.name}
+cuda_deterministic: false
+device: cuda:0
+gamma: 0.99
+seed: 0
+pretrain: null
+num_seed_steps: 0
+only_expert_states: false
+train:
+  batch: 512
+  use_target: true
+  soft_update: true
+expert:
+  demos: 1
+  subsample_freq: 1
+  n_mix_good: 400
+  n_mix_bad: 1600
+  n_bad: 100
+eval:
+  policy: null
+  threshold: null
+  use_baselines: false
+  eps: 25
+  transfer: false
+  expert_env: ''
+  n_envs: 25
+env:
+  replay_mem: 1000000.0
+  initial_mem: 1280
+  eps_steps: 100000
+  eps_window: 10
+  learn_steps: 2000000.0
+  eval_interval: 10000
+  from_pixels: false
+  name: SafetyPointButton1-v0
+  clip_threshold: 1
+method:
+  type: iq
+  loss: v0
+  constrain: false
+  grad_pen: false
+  chi: true
+  tanh: false
+  regularize: false
+  div: null
+  alpha: 0.5
+  lambda_gp: 10
+  mix_coeff: 1
+log_interval: 500
+log_dir: logs/
+save_interval: 5
+hydra_base_dir: /common/scratch/users/m/mhhoang/SafeIQ/outputs/2024-09-04/22-43-04
+eval_only: false
+wandb_log: false
+offline: false
+num_actor_updates: 1
+agent:
+  name: sac
+  _target_: agent.sac.SAC
+  obs_dim: ???
+  action_dim: ???
+  critic_cfg: ${q_net}
+  actor_cfg: ${diag_gaussian_actor}
+  disc_cfg:
+    _target_: agent.sac_models.Discriminator
+    obs_dim: ${agent.obs_dim}
+    action_dim: ${agent.action_dim}
+    hidden_dim: 256
+    hidden_depth: 3
+    reward_factor: 3.0
+    clip_threshold: ${env.clip_threshold}
+  value_cfg: ${value_network}
+  init_temp: 0.001
+  alpha_lr: 0.0003
+  alpha_betas:
+  - 0.9
+  - 0.999
+  actor_lr: 0.0001
+  actor_betas:
+  - 0.9
+  - 0.999
+  actor_update_frequency: 1
+  disc_lr: 0.0001
+  disc_betas:
+  - 0.9
+  - 0.999
+  value_lr: 3.0e-05
+  critic_lr: 0.0003
+  critic_betas:
+  - 0.9
+  - 0.999
+  critic_tau: 0.005
+  critic_target_update_frequency: 1
+  pen_bad: true
+  cql: false
+  learn_temp: false
+  vdice_actor: false
+q_net:
+  _target_: agent.sac_models.DoubleQCritic
+  obs_dim: ${agent.obs_dim}
+  action_dim: ${agent.action_dim}
+  hidden_dim: 256
+  hidden_depth: 3
+diag_gaussian_actor:
+  _target_: agent.sac_models.DiagGaussianActor
+  obs_dim: ${agent.obs_dim}
+  action_dim: ${agent.action_dim}
+  hidden_dim: 256
+  hidden_depth: 3
+  log_std_bounds:
+  - -5
+  - 2
+value_network:
+  _target_: agent.sac_models.SingleV
+  obs_dim: ${agent.obs_dim}
+  action_dim: ${agent.action_dim}
+  hidden_dim: 256
+  hidden_depth: 3
+
+--> Using SAC agent
+clip_threshold: 1
+clip_threshold: 1
+Max V: 299.9999999999997
+expert: /common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/collect_C/mix_data.hdf5, 400/1582 trajectories
+dataset shape: (400000, 76) (400000, 2) (400000, 76) (400000,)
+Return = 15.75 +- 7.07, Cost rate = 0.024
+expert: /common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/collect_U/mix_data.hdf5, 1600/2500 trajectories
+dataset shape: (1600000, 76) (1600000, 2) (1600000, 76) (1600000,)
+Return = 30.00 +- 5.28, Cost rate = 0.130
+--> mix memory size: 2000000
+expert: /common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/collect_U/bad_data.hdf5, 100/2332 trajectories
+dataset shape: (100000, 76) (100000, 2) (100000, 76) (100000,)
+Return = 28.40 +- 5.79, Cost rate = 0.144
+--> Bad memory size: 100000
+
+
+run name = our(v0)-penB
+/common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/Disc
+state_disc_C(400)_U(1600)_B(100)
+Pretrain disc mix
+/common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/Disc/mix_state_disc_C(400)_U(1600)_B(100)
+0/50000 dif = 0.002 {'disc/mix': 0.572, 'disc/bad': 0.574, 'disc/mix_good': 0.566, 'disc/mix_bad': 0.574, 'disc/good_weight': -1.564, 'disc/bad_weight': -1.767, 'disc/dif_weight': 0.203, 'disc/clip_threshold': 0.574}
+1000/50000 dif = 0.002 {'disc/mix': 0.5, 'disc/bad': 0.498, 'disc/mix_good': 0.509, 'disc/mix_bad': 0.498, 'disc/good_weight': -2.389, 'disc/bad_weight': -1.717, 'disc/dif_weight': -0.672, 'disc/clip_threshold': 0.498}
+2000/50000 dif = 0.020 {'disc/mix': 0.509, 'disc/bad': 0.489, 'disc/mix_good': 0.597, 'disc/mix_bad': 0.488, 'disc/good_weight': -2.072, 'disc/bad_weight': -1.051, 'disc/dif_weight': -1.022, 'disc/clip_threshold': 0.488}
+3000/50000 dif = 0.027 {'disc/mix': 0.511, 'disc/bad': 0.484, 'disc/mix_good': 0.616, 'disc/mix_bad': 0.484, 'disc/good_weight': -2.291, 'disc/bad_weight': -1.227, 'disc/dif_weight': -1.064, 'disc/clip_threshold': 0.484}
+4000/50000 dif = 0.040 {'disc/mix': 0.514, 'disc/bad': 0.474, 'disc/mix_good': 0.653, 'disc/mix_bad': 0.479, 'disc/good_weight': -2.489, 'disc/bad_weight': -1.464, 'disc/dif_weight': -1.024, 'disc/clip_threshold': 0.479}
+5000/50000 dif = 0.063 {'disc/mix': 0.518, 'disc/bad': 0.455, 'disc/mix_good': 0.693, 'disc/mix_bad': 0.476, 'disc/good_weight': -2.532, 'disc/bad_weight': -1.578, 'disc/dif_weight': -0.954, 'disc/clip_threshold': 0.476}
+6000/50000 dif = 0.091 {'disc/mix': 0.526, 'disc/bad': 0.435, 'disc/mix_good': 0.719, 'disc/mix_bad': 0.48, 'disc/good_weight': -2.53, 'disc/bad_weight': -1.582, 'disc/dif_weight': -0.948, 'disc/clip_threshold': 0.48}
+7000/50000 dif = 0.128 {'disc/mix': 0.54, 'disc/bad': 0.412, 'disc/mix_good': 0.739, 'disc/mix_bad': 0.488, 'disc/good_weight': -2.546, 'disc/bad_weight': -1.57, 'disc/dif_weight': -0.976, 'disc/clip_threshold': 0.488}
+8000/50000 dif = 0.146 {'disc/mix': 0.544, 'disc/bad': 0.398, 'disc/mix_good': 0.739, 'disc/mix_bad': 0.497, 'disc/good_weight': -2.462, 'disc/bad_weight': -1.562, 'disc/dif_weight': -0.9, 'disc/clip_threshold': 0.497}
+9000/50000 dif = 0.171 {'disc/mix': 0.556, 'disc/bad': 0.385, 'disc/mix_good': 0.762, 'disc/mix_bad': 0.507, 'disc/good_weight': -2.49, 'disc/bad_weight': -1.558, 'disc/dif_weight': -0.932, 'disc/clip_threshold': 0.507}
+10000/50000 dif = 0.198 {'disc/mix': 0.562, 'disc/bad': 0.364, 'disc/mix_good': 0.77, 'disc/mix_bad': 0.512, 'disc/good_weight': -2.529, 'disc/bad_weight': -1.54, 'disc/dif_weight': -0.988, 'disc/clip_threshold': 0.512}
+11000/50000 dif = 0.212 {'disc/mix': 0.568, 'disc/bad': 0.356, 'disc/mix_good': 0.781, 'disc/mix_bad': 0.513, 'disc/good_weight': -2.528, 'disc/bad_weight': -1.528, 'disc/dif_weight': -1.0, 'disc/clip_threshold': 0.513}
+save disc mix to  /common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/Disc/mix_state_disc_C(400)_U(1600)_B(100)
+--------------------
+Pretrain disc bad
+/common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/Disc/bad_state_disc_C(400)_U(1600)_B(100)
+0/50000 dif = 0.001 {'disc/mix': 0.497, 'disc/bad': 0.496, 'disc/mix_good': 0.495, 'disc/mix_bad': 0.498, 'disc/good_weight': -1.675, 'disc/bad_weight': -1.732, 'disc/dif_weight': 0.057, 'disc/clip_threshold': 0.498}
+1000/50000 dif = 0.002 {'disc/mix': 0.498, 'disc/bad': 0.5, 'disc/mix_good': 0.491, 'disc/mix_bad': 0.5, 'disc/good_weight': -1.312, 'disc/bad_weight': -1.887, 'disc/dif_weight': 0.576, 'disc/clip_threshold': 0.5}
+2000/50000 dif = 0.017 {'disc/mix': 0.497, 'disc/bad': 0.514, 'disc/mix_good': 0.43, 'disc/mix_bad': 0.515, 'disc/good_weight': -1.443, 'disc/bad_weight': -2.563, 'disc/dif_weight': 1.12, 'disc/clip_threshold': 0.515}
+3000/50000 dif = 0.029 {'disc/mix': 0.489, 'disc/bad': 0.518, 'disc/mix_good': 0.367, 'disc/mix_bad': 0.519, 'disc/good_weight': -1.17, 'disc/bad_weight': -2.382, 'disc/dif_weight': 1.212, 'disc/clip_threshold': 0.519}
+4000/50000 dif = 0.036 {'disc/mix': 0.488, 'disc/bad': 0.524, 'disc/mix_good': 0.363, 'disc/mix_bad': 0.521, 'disc/good_weight': -0.986, 'disc/bad_weight': -2.103, 'disc/dif_weight': 1.117, 'disc/clip_threshold': 0.521}
+5000/50000 dif = 0.052 {'disc/mix': 0.488, 'disc/bad': 0.54, 'disc/mix_good': 0.336, 'disc/mix_bad': 0.527, 'disc/good_weight': -0.962, 'disc/bad_weight': -1.997, 'disc/dif_weight': 1.035, 'disc/clip_threshold': 0.527}
+6000/50000 dif = 0.079 {'disc/mix': 0.479, 'disc/bad': 0.558, 'disc/mix_good': 0.288, 'disc/mix_bad': 0.525, 'disc/good_weight': -0.808, 'disc/bad_weight': -1.973, 'disc/dif_weight': 1.165, 'disc/clip_threshold': 0.525}
+7000/50000 dif = 0.108 {'disc/mix': 0.467, 'disc/bad': 0.575, 'disc/mix_good': 0.271, 'disc/mix_bad': 0.515, 'disc/good_weight': -0.785, 'disc/bad_weight': -1.995, 'disc/dif_weight': 1.21, 'disc/clip_threshold': 0.515}
+8000/50000 dif = 0.141 {'disc/mix': 0.456, 'disc/bad': 0.597, 'disc/mix_good': 0.266, 'disc/mix_bad': 0.502, 'disc/good_weight': -0.814, 'disc/bad_weight': -1.959, 'disc/dif_weight': 1.145, 'disc/clip_threshold': 0.502}
+9000/50000 dif = 0.168 {'disc/mix': 0.452, 'disc/bad': 0.62, 'disc/mix_good': 0.248, 'disc/mix_bad': 0.502, 'disc/good_weight': -0.769, 'disc/bad_weight': -1.96, 'disc/dif_weight': 1.192, 'disc/clip_threshold': 0.502}
+10000/50000 dif = 0.193 {'disc/mix': 0.443, 'disc/bad': 0.636, 'disc/mix_good': 0.242, 'disc/mix_bad': 0.495, 'disc/good_weight': -0.765, 'disc/bad_weight': -1.961, 'disc/dif_weight': 1.196, 'disc/clip_threshold': 0.495}
+11000/50000 dif = 0.206 {'disc/mix': 0.445, 'disc/bad': 0.651, 'disc/mix_good': 0.241, 'disc/mix_bad': 0.495, 'disc/good_weight': -0.754, 'disc/bad_weight': -1.956, 'disc/dif_weight': 1.202, 'disc/clip_threshold': 0.495}
+save disc bad to  /common/scratch/users/m/mhhoang/SafeIQ/experts/SafetyPointButton1-v0/Disc/bad_state_disc_C(400)_U(1600)_B(100)
+--------------------
+Traceback (most recent call last):
+  File "/common/scratch/users/m/mhhoang/SafeIQ/train_safeiq.py", line 193, in main
+    raise
+RuntimeError: No active exception to reraise
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.
+All scripts have finished running.
+Job ID: 82390
+Cluster: crimson
+User/Group: mhhoang/mhhoang
+State: COMPLETED (exit code 0)
+Nodes: 1
+Cores per node: 10
+CPU Utilized: 00:16:25
+CPU Efficiency: 10.67% of 02:33:50 core-walltime
+Job Wall-clock time: 00:15:23
+Memory Utilized: 20.97 GB
+Memory Efficiency: 16.39% of 128.00 GB
