@@ -15,6 +15,9 @@ train:
   batch: 32
   use_target: False
   soft_update: False
+  update_actor_Q: False
+  true_bad: False
+  sep_V: True
 
 expert:
   demos: 1

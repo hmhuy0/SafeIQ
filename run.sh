@@ -8,24 +8,23 @@
 #################################################
 
 #SBATCH --nodes=1                   # How many nodes required? Usually 1
-#SBATCH --cpus-per-task=16           # Number of CPU to request for the job
+#SBATCH --cpus-per-task=32           # Number of CPU to request for the job
 #SBATCH --mem=128GB                   # How much memory does your job require?
 #SBATCH --gres=gpu:1                # Do you require GPUS? If not delete this line
 #SBATCH --time=05-00:00:00          # How long to run the job for? Jobs exceed this time will be terminated
                                     # Format <DD-HH:MM:SS> eg. 5 days 05-00:00:00
                                     # Format <DD-HH:MM:SS> eg. 24 hours 1-00:00:00 or 24:00:00
-#SBATCH --output=logs/test_%j.out          # Where should the log files go?
+#SBATCH --output=logs/test_2.out          # Where should the log files go?
                                     # You must provide an absolute path eg /common/home/module/username/
                                     # If no paths are provided, the output file will be placed in your current working directory
-#SBATCH --prefer=48gb
 ################################################################
 ## EDIT AFTER THIS LINE IF YOU ARE OKAY WITH DEFAULT SETTINGS ##
 ################################################################
 
-#SBATCH --partition=researchlong                 #  researchlong pradeepresearch
+#SBATCH --partition=pradeepresearch                 #  researchlong pradeepresearch
 #SBATCH --account=pradeepresearch   # The account you've been assigned (normally student)
-#SBATCH --qos=mhhoang-20240209        # mhhoang-20240209 research-1-qos pradeepresearch-priority
-#SBATCH --job-name=UNIQ     # Give the job a name
+#SBATCH --qos=pradeepresearch-priority        # mhhoang-20240209 research-1-qos pradeepresearch-priority
+#SBATCH --job-name=UNIQ-Q     # Give the job a name
 
 #################################################
 ##            END OF SBATCH COMMANDS           ##
@@ -55,4 +54,3 @@ conda activate IQ
 
 srun whichgpu
 srun --gres=gpu:1 python -u run_experiments.py
-

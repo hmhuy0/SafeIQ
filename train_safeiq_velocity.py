@@ -30,64 +30,58 @@ from utils.logger import Logger
 
 torch.set_num_threads(1)
 
+def split_dataset(data_dict, return_threshold=0.5, cost_threshold=0.5):
+    """
+    Split the dataset into two subsets based on return and cost thresholds.
+    
+    Args:
+    data_dict (dict): The original dataset dictionary.
+    return_threshold (float): The threshold for return (default 0.5, representing 50%).
+    cost_threshold (float): The threshold for cost (default 0.5, representing 50%).
+    
+    Returns:
+    tuple: Two dictionaries, (good_data, other_data)
+    """
+    # Calculate episode ends
+    episode_ends = np.where(data_dict['terminals'] | data_dict['timeouts'])[0]
+    episode_starts = np.concatenate(([0], episode_ends[:-1] + 1))
+    
+    # Calculate cumulative returns and costs for each episode
+    returns = np.add.reduceat(data_dict['rewards'], episode_starts)
+    costs = np.add.reduceat(data_dict['costs'], episode_starts)
+    
+    # Normalize returns and costs
+    max_return = np.max(returns)
+    min_return = np.min(returns)
+    max_cost = np.max(costs)
+    min_cost = np.min(costs)
+    
+    normalized_returns = (returns - min_return) / (max_return - min_return)
+    normalized_costs = (costs - min_cost) / (max_cost - min_cost)
+    
+    # Create mask for good trajectories
+    good_mask = (normalized_returns > return_threshold) & (normalized_costs < cost_threshold)
+    
+    # Split the data
+    good_data = {k: [] for k in data_dict.keys()}
+    other_data = {k: [] for k in data_dict.keys()}
+    
+    for i, (start, end) in enumerate(zip(episode_starts, episode_ends + 1)):
+        target_dict = good_data if good_mask[i] else other_data
+        for k in data_dict.keys():
+            target_dict[k].append(data_dict[k][start:end])
+    
+    # Concatenate the data
+    good_data = {k: np.concatenate(v) for k, v in good_data.items()}
+    other_data = {k: np.concatenate(v) for k, v in other_data.items()}
+    
+    return good_data, other_data
+
 
 def get_args(cfg: DictConfig):
     cfg.device = "cuda:0" if torch.cuda.is_available() else "cpu"
     cfg.hydra_base_dir = os.getcwd()
     return cfg
-
-def load_dataset(expert_location,
-                 num_trajectories=None,seed=0):
-    assert os.path.isfile(expert_location)
-    
-    hdf_trajs = h5py.File(expert_location, 'r')
-    starts_timeout = np.where(np.array(hdf_trajs['timeouts'])>0)[0].tolist()
-    starts_done = np.where(np.array(hdf_trajs['terminals'])>0)[0].tolist()
-    starts = [-1]+starts_timeout+starts_done
-    starts = list(dict.fromkeys(starts))
-    starts.sort()
-    
-    rng = np.random.RandomState(seed)
-    perm = np.arange(len(starts)-1)
-    perm = rng.permutation(perm)
-    if (num_trajectories):
-        num_trajectories = min(num_trajectories,len(perm))
-        idx = perm[:num_trajectories]
-    else:
-        idx = perm
-    trajs = {}
-    
-    trajs['dones'] = [np.array(hdf_trajs['terminals'][starts[idx[i]]+1:starts[idx[i]+1]+1])
-                        for i in range(len(idx))]
-    trajs['states'] = [np.array(hdf_trajs['observations'][starts[idx[i]]+1:starts[idx[i]+1]+1])
-                        for i in range(len(idx))]
-    trajs['initial_states'] = np.array([hdf_trajs['observations'][starts[idx[i]]+1]
-                        for i in range(len(idx))])
-    trajs['next_states'] = [np.array(hdf_trajs['next_observations'][starts[idx[i]]+1:starts[idx[i]+1]+1])
-                        for i in range(len(idx))]
-    trajs['actions'] = [np.array(hdf_trajs['actions'][starts[idx[i]]+1:starts[idx[i]+1]+1])
-                        for i in range(len(idx))]
-    trajs['rewards'] = [hdf_trajs['rewards'][starts[idx[i]]+1:starts[idx[i]+1]+1]
-                            for i in range(len(idx))]
-    trajs['costs'] = [hdf_trajs['costs'][starts[idx[i]]+1:starts[idx[i]+1]+1]
-                            for i in range(len(idx))]
-    
-    reward_arr = [np.sum(trajs['rewards'][i]) for i in range(len(trajs['rewards']))]
-    
-    trajs['dones'] = np.concatenate(trajs['dones'],axis=0)
-    trajs['states'] = np.concatenate(trajs['states'],axis=0)
-    trajs['actions'] = np.concatenate(trajs['actions'],axis=0)
-    trajs['next_states'] = np.concatenate(trajs['next_states'],axis=0)
-    
-    trajs['rewards'] = np.concatenate(trajs['rewards'],axis=0)
-    trajs['costs'] = np.concatenate(trajs['costs'],axis=0)
-    
-    print(f'expert: {expert_location}, {len(idx)}/{len(perm)} trajectories')
-    print('dataset shape:',trajs['states'].shape,trajs['actions'].shape,trajs['next_states'].shape,
-          trajs['rewards'].shape)
-    print(f'Return = {np.mean(reward_arr):.2f} +- {np.std(reward_arr):.2f}'+
-          f', Cost rate = {np.mean(trajs["costs"]):.3f}')
-    return trajs
 
 def merge_dataset(c_dataset,u_dataset):
     dataset = {}
@@ -111,6 +105,26 @@ def merge_dataset(c_dataset,u_dataset):
     dataset['is_constrained'] = dataset['is_constrained'][perm]
     
     return dataset
+
+def convert_dataset(data,start,end):
+    data_dict = {}
+    start_idx = start*1000
+    if (end != -1):
+        end_idx = end*1000
+        data_dict['states'] = data['observations'][start_idx:end_idx]
+        data_dict['actions'] = data['actions'][start_idx:end_idx]
+        data_dict['next_states'] = data['next_observations'][start_idx:end_idx]
+        data_dict['rewards'] = data['rewards'][start_idx:end_idx]
+        data_dict['costs'] = data['costs'][start_idx:end_idx]
+        data_dict['dones'] = data['terminals'][start_idx:end_idx]
+    else:
+        data_dict['states'] = data['observations'][start_idx:]
+        data_dict['actions'] = data['actions'][start_idx:]
+        data_dict['next_states'] = data['next_observations'][start_idx:]
+        data_dict['rewards'] = data['rewards'][start_idx:]
+        data_dict['costs'] = data['costs'][start_idx:]
+        data_dict['dones'] = data['terminals'][start_idx:]
+    return data_dict
 
 @hydra.main(config_path="conf", config_name="config")
 def main(cfg: DictConfig):
@@ -146,31 +160,50 @@ def main(cfg: DictConfig):
         torch.backends.cudnn.deterministic = True
 
     env_args = args.env
-    import safety_gymnasium
-    env = make_env(args)
-    eval_env = safety_gymnasium.vector.make(env_id=args.env.name, num_envs=args.eval.n_envs)
+    import gymnasium
+    import dsrl
 
+    
+    env = gymnasium.make(args.env.name)
+    dataset = env.get_dataset()
+    good_data, bad_data = split_dataset(dataset)
+    
+    vio_dataset = convert_dataset(bad_data,0,1000)
+    unlabelled_bad = convert_dataset(bad_data,1000,-1)
+    unlabelled_good = convert_dataset(good_data,0,500)
+    mix_dataset = merge_dataset(c_dataset=unlabelled_good, u_dataset=unlabelled_bad)
+    
+    shift = -np.mean(dataset['observations'], 0)
+    scale = 1.0 / (np.std(dataset['observations'], 0) + 1e-3)
+    
+    print(f'normalize observation: shift = {(shift)}, scale = {(scale)}')
+
+    print(f'on dataset: {len(dataset["observations"])}')
+    print(f'unlabelled good data: {len(unlabelled_good["states"])}')
+    print(f'violation data: {len(vio_dataset["states"])}')
+    print(f'unlabelled bad data: {len(unlabelled_bad["states"])}')
+    print(f'mix dataset',len(mix_dataset['states']))
+    
+    del bad_data
+    del good_data
+    del dataset
+    del unlabelled_bad
+    del unlabelled_good
+    
+    eval_env = gymnasium.vector.make(id=args.env.name, num_envs=args.eval.n_envs)
+    
     # Seed envs
     eval_env.reset(seed=[i for i in range(args.eval.n_envs)])
 
     LEARN_STEPS = int(env_args.learn_steps)
-
     agent = make_agent(env, args)
-
-    c_data_path = hydra.utils.to_absolute_path(f'experts/{args.env.name}/collect_C/mix_data.hdf5')
-    c_dataset = load_dataset(c_data_path,num_trajectories=n_mix_good,seed=0)
-    u_data_path = hydra.utils.to_absolute_path(f'experts/{args.env.name}/collect_U/mix_data.hdf5')
-    u_dataset = load_dataset(u_data_path,num_trajectories=n_mix_bad,seed=1)
-    dataset = merge_dataset(c_dataset=c_dataset, u_dataset=u_dataset)
-    del c_dataset
-    del u_dataset
     
     mix_memory_replay = Memory(1, args.seed)
-    mix_memory_replay.load_from_data(dataset)
+    mix_memory_replay.load_from_data(mix_dataset)
+    mix_memory_replay.shift = shift
+    mix_memory_replay.scale = scale
     print(f'--> mix memory size: {mix_memory_replay.size()}')
     
-    vio_data_path = hydra.utils.to_absolute_path(f'experts/{args.env.name}/collect_U/bad_data.hdf5')
-    vio_dataset = load_dataset(vio_data_path,num_trajectories=n_bad,seed=2)
     vio_dataset['is_constrained'] = np.zeros_like(vio_dataset['costs'],dtype=bool)
     
     if (args.train.true_bad):
@@ -183,6 +216,8 @@ def main(cfg: DictConfig):
             
     bad_memory_replay = Memory(1, args.seed)
     bad_memory_replay.load_from_data(vio_dataset)
+    bad_memory_replay.shift = shift
+    bad_memory_replay.scale = scale
 
     print(f'--> Bad memory size: {bad_memory_replay.size()}')
     print(f'\n\nrun name = {run_name}')
@@ -205,7 +240,7 @@ def main(cfg: DictConfig):
     agent.pretrain_disc = types.MethodType(pretrain_disc, agent)
     
     disc_path = f'{hydra.utils.to_absolute_path("experts")}/{args.env.name}/Disc'
-    agent.pretrain_disc(mix_memory_replay,bad_memory_replay,disc_path,f'state_disc_C({n_mix_good})_U({n_mix_bad})_B({n_bad})')
+    agent.pretrain_disc(mix_memory_replay,bad_memory_replay,disc_path,f'state_disc_({n_bad})')
     agent.disc_mix.eval()
     agent.disc_bad.eval()
     
@@ -261,7 +296,7 @@ def pretrain_disc(self, mix_buffer, bad_buffer, disc_path,file_name,total_step =
         print(mix_path)
         for itr in range(total_step+1):
             info = self.update_disc(mix_buffer,bad_buffer,mix_path, itr)
-            if (itr%5000 == 0):
+            if (itr%1000 == 0):
                 print(f'{itr}/{total_step} dif = {abs(info["disc/bad"] - info["disc/mix"]):.3f}',info)
                 if (abs(info['disc/bad'] - info['disc/mix']) >0.2):
                     break
@@ -273,9 +308,9 @@ def pretrain_disc(self, mix_buffer, bad_buffer, disc_path,file_name,total_step =
         print(bad_path)
         for itr in range(total_step+1):
             info = self.update_disc(mix_buffer,bad_buffer,bad_path, itr)
-            if (itr%5000 == 0):
+            if (itr%1000 == 0):
                 print(f'{itr}/{total_step} dif = {abs(info["disc/bad"] - info["disc/mix"]):.3f}',info)
-                if (abs(info['disc/bad'] - info['disc/mix']) >0.5):
+                if (abs(info['disc/bad'] - info['disc/mix']) >0.2):
                     break
                 
         torch.save(self.disc_bad.state_dict(), bad_path)

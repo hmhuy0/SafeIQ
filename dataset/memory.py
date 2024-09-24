@@ -12,6 +12,8 @@ class Memory(object):
         random.seed(seed)
         self.memory_size = memory_size
         self.buffer = deque(maxlen=self.memory_size)
+        self.shift = 0
+        self.scale = 1
 
     def add(self, experience) -> None:
         self.buffer.append(experience)
@@ -70,9 +72,9 @@ class Memory(object):
         batch_state = np.array(batch_state)
         batch_next_state = np.array(batch_next_state)
         batch_action = np.array(batch_action)
-        if (noise>0):
-            batch_action = batch_action + np.random.normal(0, noise, batch_action.shape)
-            batch_state = batch_state + np.random.normal(0, noise, batch_state.shape)
+        
+        batch_state = (batch_state + self.shift) * self.scale
+        batch_next_state = (batch_next_state + self.shift) * self.scale
 
         batch_state = torch.as_tensor(batch_state, dtype=torch.float, device=device)
         batch_next_state = torch.as_tensor(batch_next_state, dtype=torch.float, device=device)

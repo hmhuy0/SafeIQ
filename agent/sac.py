@@ -122,10 +122,20 @@ class SAC(object):
         # assert action.ndim == 2 and action.shape[0] == 1
         return action.detach().cpu().numpy()
 
-    def getV(self, obs):
-        current_V = self.value(obs)
-        return current_V
+    def get_targetV(self, obs):
+        action, log_prob, _ = self.actor.sample(obs)
+        target_Q = self.critic_target(obs, action)
+        target_V = target_Q - self.alpha.detach() * log_prob
+        return target_V
 
+    def getV(self, obs):
+        if (self.args.train.sep_V):
+            current_V = self.value(obs)
+        else:
+            action, log_prob, _ = self.actor.sample(obs)
+            current_Q = self.critic(obs, action)
+            current_V = current_Q - self.alpha.detach() * log_prob
+        return current_V
 
     def update(self, replay_buffer, logger, step):
         obs, next_obs, action, reward, done = replay_buffer.get_samples(
